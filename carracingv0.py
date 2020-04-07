@@ -53,18 +53,14 @@ PLAYFIELD   = 2000/SCALE # Game over boundary
 FPS         = 50         # Frames per second
 ZOOM        = 2.7        # Camera zoom
 ZOOM_FOLLOW = True       # Set to False for fixed view (don't use zoom)
-
-
 TRACK_DETAIL_STEP = 21/SCALE
 TRACK_TURN_RATE = 0.31
 TRACK_WIDTH = 40/SCALE
 BORDER = 8/SCALE
 BORDER_MIN_COUNT = 4
-
 ROAD_COLOR = [0.4, 0.4, 0.4]
+
 previous_road = []
-
-
 class FrictionDetector(contactListener):
     def __init__(self, env):
         contactListener.__init__(self)
@@ -402,53 +398,46 @@ class CarRacing(gym.Env, EzPickle):
         t.disable()
         self.render_indicators(WINDOW_W, WINDOW_H)
 
+        global previous_road
+        print(type(previous_road))
         if mode == 'human':
             win.flip()
             return self.viewer.isopen
+        
 
         image_data = pyglet.image.get_buffer_manager().get_color_buffer().get_image_data()
         arr = np.fromstring(image_data.get_data(), dtype=np.uint8, sep='')
         arr = arr.reshape(VP_H, VP_W, 4)
         arr = arr[::-1, :, 0:3]
 
-        #event_frame = 0
-        #print(type(image_data))
-        if len(previous_road) >= 1:
-
-            #previous_road = previous_road[1:]
+        if len(previous_road) >=1  :
             arrs = np.fromstring(previous_road[0].get_data(), dtype=np.uint8, sep='')
             arrs = arrs.reshape(VP_H, VP_W, 4)
             arrs = arrs[::-1, :, 0:3]
-
             previous_road.append(image_data)
-
+            previous_road = previous_road[1:]
             # arrs = np.fromstring(previous_road[0].get_data(), dtype=np.uint8, sep='')
             # arrs = arrs.reshape(VP_H, VP_W, 4)
             # arrs = arrs[::-1, :, 0:3]
             # previous_road.append(image_data)
-            # print("work")
             #previous_road.append(1)
-            print("previous",previous_road[1])
-
 
         else:
-            previous_road.append(image_data)
-            print("prev",previous_road)
 
-            # print("not working")
-            # previous_road.append(image_data)
-            arrs = np.fromstring(previous_road.get_data(), dtype=np.uint8, sep='')
+            previous_road.append(image_data)
+            print("Printing")
+            #print("prev",previous_road)
+            arrs = np.fromstring(previous_road[0].get_data(), dtype=np.uint8, sep='')
             arrs = arrs.reshape(VP_H, VP_W, 4)
             arrs = arrs[::-1, :, 0:3]
+            # previous_road.append(0)
+            print(type(previous_road))
 
-
-        print(len(previous_road))
 
         event_frame = cv2.absdiff(arr,arrs)
-
-
-        #print(event_frame)
-        #print(arr)
+        print(len(previous_road))
+        # previous_road = previous_road.pop()
+        print(event_frame)
         return event_frame
 
     def close(self):
@@ -554,4 +543,3 @@ if __name__=="__main__":
             if done or restart or isopen == False:
                 break
     env.close()
-
