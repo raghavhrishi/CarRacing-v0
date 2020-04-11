@@ -160,7 +160,7 @@ class CarRacing(gym.Env, EzPickle):
         #    (0.7,0.7,0.9) ) ]
         self.road = []
 
-        # Go from one checkpoint to another to create track
+        # Go from onCommunicating the goal of a task to another person is easy: we can use language, show them an image of the desired outcome, point them to a how-to video, or use some combination of all of these. On the other hand, specifying a task to a robot for reinforcement learning requires substantial effort. Most prior work that has applied deep reinforcement learning to real robots makes uses of specialized sensors to obtain rewards or studies tasks where the robot’s internal sensors can be used to measure reward. For example, using thermal cameras for tracking fluids, or purpose-built computer vision systems for tracking objects. Since such instrumentation needs to be done for any new task that we may wish to learn, it poses a significant bottleneck to widespread adoption of reinforcement learning for robotics, and precludes the use of these methods directly in open-world environments that lack this instrumentation.e checkpoint to another to create track
         x, y, beta = 1.5*TRACK_RAD, 0, 0
         dest_i = 0
         laps = 0
@@ -416,6 +416,7 @@ class CarRacing(gym.Env, EzPickle):
             arrs = arrs[::-1, :, 0:3]
             previous_road.append(image_data)
             previous_road = previous_road[1:]
+            
             # arrs = np.fromstring(previous_road[0].get_data(), dtype=np.uint8, sep='')
             # arrs = arrs.reshape(VP_H, VP_W, 4)
             # arrs = arrs[::-1, :, 0:3]
