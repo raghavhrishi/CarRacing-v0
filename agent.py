@@ -3,18 +3,19 @@ from skimage import color, transform
 import tensorflow.contrib.slim as slim
 import tensorflow as tf
 import itertools as it
+import tensorflow.contrib as tf_contrib
 from dqn.experience_history import ExperienceHistory
+import sys 
+from scipy.special import rel_entr
+from keras.backend import clear_session
 
 class DQN:
     """
     General DQN agent.
     Can be applied to any standard environment
-
     The implementation follows:
     Mnih et. al - Playing Atari with Deep Reinforcement Learning https://arxiv.org/pdf/1312.5602.pdf
-
     The q-network structure is different from the original paper
-
     see also:
     David Silver's RL course lecture 6: https://www.youtube.com/watch?v=UoPei5o4fps&t=1s
     """
@@ -87,7 +88,77 @@ class DQN:
     def process_image(img):
         return 2 * color.rgb2gray(transform.rescale(img[34:194], 0.5)) - 1
 
+
+
+    def kl_divergence(p, q): 
+        return tf.reduce_sum(p * tf.log(p/q))
+
+
+    def sample_z(self, mu, logvar):
+        eps = tf.random_normal(shape=tf.shape(mu))
+        return mu + tf.exp(logvar / 2) * eps
+
+    def encoderRGB(self, x):
+        
+        x = tf.placeholder(tf.float32, [None, 96, 96, 3], name='image')
+        x = tf.image.resize_images(x, [96, 96])
+        x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        x = tf.layers.conv2d(x, filters=128, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        x = tf.layers.conv2d(x, filters=256, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        x = tf.layers.flatten(x)
+        fc1 = tf.reshape(x, [-1, 4096])
+        shapes = tf.shape(x)
+        #z_mu = slim.fully_connected(fc1, 5, activation_fn=tf.nn.elu)
+        z_mean = tf_contrib.layers.fully_connected(fc1,32)
+
+        shape = x.get_shape().as_list() 
+        z_mua = tf.layers.dense(fc1, units=32, name='z_mu')
+        z_logvara = tf.layers.dense(fc1, units=32, name='z_logvar')
+        # dim = np.prod(shape[1:])            
+        # x2 = tf.reshape(-1, x.get_shape())
+        #print("dimension!!!",fc1)
+       
+               # x = tf.reshape(-1,4096)
+        tf.reset_default_graph()
+
+        # z_mus = tf.layers.dense(x2, units=32, name='z_mu')
+        # z_logvars = tf.layers.dense(x2, units=32, name='z_logvar')
+
+        return z_mean, z_logvara
+
+    
+    def encoderEvent(self, x):
+        #x = tf.placeholder(tf.float32, [None, None, 96, 96], name='image')
+        
+        x = tf.placeholder(tf.float32, [None, 96, 96, 3], name='image')
+        x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        x = tf.layers.conv2d(x, filters=128, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        x = tf.layers.conv2d(x, filters=256, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        x = tf.layers.flatten(x)
+        fc1 = tf.reshape(x, [-1, 4096])
+        z_means = tf.layers.dense(fc1, units=32, name='z_mu')
+        z_logvariance = tf.layers.dense(fc1, units=32, name='z_logvar')
+       # print("dimension!!!!!!!!!!1",type(x))
+        # x = tf.reshape(x.size(0),-1)
+        # z_mu = tf.layers.dense(x, units=32, name='z_mu')
+        # z_logvar = tf.layers.dense(x, units=32, name='z_logvar')
+        tf.reset_default_graph()
+        return z_means, z_logvariance
+
+    def compute_loss(self):
+    logits_flat = tf.layers.flatten(self.reconstructions)
+    labels_flat = tf.layers.flatten(self.resized_image)
+    reconstruction_loss = tf.reduce_sum(tf.square(logits_flat - labels_flat), axis = 1)
+    kl_loss = 0.5 * tf.reduce_sum(tf.exp(self.z_logvar) + self.z_mu**2 - 1. - self.z_logvar, 1)
+    vae_loss = tf.reduce_mean(reconstruction_loss + kl_loss)
+    return vae_loss
+
+
     def build_graph(self):
+        
+
         input_dim_with_batch = (self.batchsize, self.num_frame_stack) + self.pic_size
         input_dim_general = (None, self.num_frame_stack) + self.pic_size
 
@@ -142,7 +213,6 @@ class DQN:
         # the input is stack of black and white frames.
         # put the stack in the place of channel (last in tf)
         input_t = tf.transpose(input, [0, 2, 3, 1])
-
         net = slim.conv2d(input_t, 8, (7, 7), data_format="NHWC",
             activation_fn=tf.nn.relu, stride=3, weights_regularizer=wr, trainable=trainable)
         net = slim.max_pool2d(net, 2, 2)
@@ -193,8 +263,47 @@ class DQN:
         )
         total_reward = 0
         frames_in_episode = 0
+        with tf.Graph().as_default():
+            first_frame = self.env.reset()
+            val, event = self.env.returnRgb()
+            k = tf.keras.losses.KLDivergence()
+            mu, var = self.encoderRGB(val)
+            event_mu, event_logvar = self.encoderEvent(event)
+            latent = self.sample_z(mu,var)
+            latent_event = self.sample_z(event_mu,event_logvar)
+            #kl_r = rel_entr(latent,latent_event)
+            #clear_session()
+            a = tf.constant([[4,3],[3,3]])
+            print(type(a))
+            sess = tf.InteractiveSession()
+            xo = tf.Print(mu,[mu])
+            sess.run(xo)
+            sess.close()
+        wr = slim.l2_regularizer(self.regularization)
 
-        first_frame = self.env.reset()
+
+        #PRINTING VALUES
+       #  a = tf.constant([[4,3],[3,3]])
+       # # x = tf.Print(a,[a])
+       #  sess = tf.InteractiveSession()
+       #  sess.run(latent_event)
+       #  sess.close()
+
+
+
+        # net = slim.conv2d(event, 8, (7, 7), data_format="NHWC",
+        #     activation_fn=tf.nn.relu, stride=3, weights_regularizer=wr)
+
+        # x = tf.layers.conv2d(event, filters=32, kernel_size=1,  activation=tf.nn.relu)
+        # x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2, activation=tf.nn.relu)
+        # x = tf.layers.conv2d(x, filters=128, kernel_size=4, strides=2,  activation=tf.nn.relu)
+        # x = tf.layers.conv2d(x, filters=256, kernel_size=4, strides=2,  activation=tf.nn.relu)
+        # # x = tf.layers.flatten(x)
+        # z_mu = tf.layers.dense(x, units=32, name='z_mu')
+        # z_logvar = tf.layers.dense(x, units=32, name='z_logvar')
+
+
+
         first_frame_pp = self.process_image(first_frame)
 
         eh.start_new_episode(first_frame_pp)
@@ -215,7 +324,7 @@ class DQN:
 
             reward = 0
             for _ in range(self.frame_skip):
-                observation, r, done, info = self.env.step(action)
+                observation, r, done, info = self.env.step(action)              
                 if self.render:
                     self.env.render()
                 reward += r
@@ -257,7 +366,6 @@ class DQN:
 class CarRacingDQN(DQN):
     """
     CarRacing specifig part of the DQN-agent
-
     Some minor env-specifig tweaks but overall
     assumes very little knowledge from the environment
     """
