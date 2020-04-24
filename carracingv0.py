@@ -12,6 +12,10 @@ from gym.utils import colorize, seeding, EzPickle
 import pyglet
 from pyglet import gl
 import cv2
+import matplotlib
+import imageio
+from PIL import Image
+
 
 # Easiest continuous control task to learn from pixels, a top-down racing environment.
 # Discrete control is reasonable in this environment as well, on/off discretization is
@@ -291,6 +295,8 @@ class CarRacing(gym.Env, EzPickle):
         self.track = track
         return True
 
+
+
     def reset(self):
         self._destroy()
         self.reward = 0.0
@@ -366,9 +372,7 @@ class CarRacing(gym.Env, EzPickle):
             WINDOW_W/2 - (scroll_x*zoom*math.cos(angle) - scroll_y*zoom*math.sin(angle)),
             WINDOW_H/4 - (scroll_x*zoom*math.sin(angle) + scroll_y*zoom*math.cos(angle)) )
         self.transform.set_rotation(angle)
-
         self.car.draw(self.viewer, mode!="state_pixels")
-
         arr = None
         win = self.viewer.window
         win.switch_to()
@@ -399,24 +403,36 @@ class CarRacing(gym.Env, EzPickle):
         self.render_indicators(WINDOW_W, WINDOW_H)
 
         global previous_road
-        print(type(previous_road))
+        global rgb
         if mode == 'human':
             win.flip()
             return self.viewer.isopen
-        
+
+
+
 
         image_data = pyglet.image.get_buffer_manager().get_color_buffer().get_image_data()
         arr = np.fromstring(image_data.get_data(), dtype=np.uint8, sep='')
         arr = arr.reshape(VP_H, VP_W, 4)
         arr = arr[::-1, :, 0:3]
 
+        arr = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+
+
+        # rgb_weights = [0.2989, 0.5870, 0.1140]
+        # arr = np.dot(arr[...,:3], rgb_weights)
+
+
         if len(previous_road) >=1  :
             arrs = np.fromstring(previous_road[0].get_data(), dtype=np.uint8, sep='')
             arrs = arrs.reshape(VP_H, VP_W, 4)
             arrs = arrs[::-1, :, 0:3]
+            rgb = arrs
+            # arrs = np.dot(arrs[...,:3], rgb_weights)
+            arrs = cv2.cvtColor(arrs, cv2.COLOR_RGB2GRAY)
             previous_road.append(image_data)
             previous_road = previous_road[1:]
-            
+
             # arrs = np.fromstring(previous_road[0].get_data(), dtype=np.uint8, sep='')
             # arrs = arrs.reshape(VP_H, VP_W, 4)
             # arrs = arrs[::-1, :, 0:3]
@@ -424,22 +440,36 @@ class CarRacing(gym.Env, EzPickle):
             #previous_road.append(1)
 
         else:
-
             previous_road.append(image_data)
-            print("Printing")
+           # print("Printing")
             #print("prev",previous_road)
             arrs = np.fromstring(previous_road[0].get_data(), dtype=np.uint8, sep='')
             arrs = arrs.reshape(VP_H, VP_W, 4)
             arrs = arrs[::-1, :, 0:3]
+            rgb = arrs
+            #arrs = np.dot(arrs[...,:3], rgb_weights)
+            arrs = cv2.cvtColor(arrs, cv2.COLOR_RGB2GRAY)
             # previous_road.append(0)
-            print(type(previous_road))
+            #print(type(previous_road))
 
+        # grayscales_image = np.dot(arrs[...,:3], rgb_weights)
 
+        #event_frame = cv2.absdiff(arr,arrs)
+        global event_frame
         event_frame = cv2.absdiff(arr,arrs)
-        print(len(previous_road))
-        # previous_road = previous_road.pop()
-        print(event_frame)
+        imageio.imwrite('image_name.png', event_frame)
+        # imageio.imwrite('image_names.png', arrs)
+        # imageio.imwrite('events.png', event_frame)    
+            
+
+
+
+        #print(event_frame)
         return event_frame
+
+
+    def returnRgb(self):
+        return rgb, event_frame   
 
     def close(self):
         if self.viewer is not None:
