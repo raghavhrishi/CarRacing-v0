@@ -8,6 +8,9 @@ from dqn.experience_history import ExperienceHistory
 import sys 
 from scipy.special import rel_entr
 from keras.backend import clear_session
+from tensorflow.keras import datasets, layers, models
+import math     
+from PIL import Image
 
 class DQN:
     """
@@ -98,6 +101,47 @@ class DQN:
         eps = tf.random_normal(shape=tf.shape(mu))
         return mu + tf.exp(logvar / 2) * eps
 
+    def MakeItWork(self, x):
+        
+        x = tf.placeholder(tf.float32, [64, 96, 96, 3], name='image')
+        x = tf.image.resize_images(x, [64, 64])
+        x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        red_work = x
+        x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        # x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        # x = tf.layers.conv2d(x, filters=128, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        # x = tf.layers.conv2d(x, filters=256, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        x = tf.layers.flatten(x)
+        x = tf.reshape(x, [-1, 6272])
+        print(x)
+        z_mu = slim.fully_connected(x, 5, activation_fn=tf.nn.elu)
+        z_var = slim.fully_connected(x, 5, activation_fn=tf.nn.elu)
+        print("slim",z_mu)
+        return z_mu, z_var
+
+    def MakeItWorkEvent(self, x):
+        
+        x = tf.placeholder(tf.float32, [64, 96, 96, 1], name='image')
+        x = tf.image.resize_images(x, [64, 64])
+        x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        red_work = x
+        x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        # x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        # x = tf.layers.conv2d(x, filters=128, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        # x = tf.layers.conv2d(x, filters=256, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
+        x = tf.layers.flatten(x)
+        x = tf.reshape(x, [-1, 6272])
+       
+        print(x)
+        z_mu = slim.fully_connected(x, 5, activation_fn=tf.nn.elu)
+        z_var = slim.fully_connected(x, 5, activation_fn=tf.nn.elu)
+        print("slim",z_mu)
+
+        return z_mu, z_var
+
+
+
+
     def encoderRGB(self, x):
         
         x = tf.placeholder(tf.float32, [None, 96, 96, 3], name='image')
@@ -130,8 +174,17 @@ class DQN:
     
     def encoderEvent(self, x):
         #x = tf.placeholder(tf.float32, [None, None, 96, 96], name='image')
-        
+
+        model = models.Sequential()
+        model.add(layers.Conv2D(32, (4, 4), activation='relu', input_shape=[None, 96, 96]))
+        model.add(layers.MaxPooling2D((2, 2)))
+
+        # model.add(layers.Conv2D(64, (3, 3), activation='relu'))
+        # model.add(layers.MaxPooling2D((2, 2)))
+        # model.add(layers.Conv2D(64, (3, 3), activation='relu'))
+
         x = tf.placeholder(tf.float32, [None, 96, 96, 3], name='image')
+        shape = x
         x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
         x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
         x = tf.layers.conv2d(x, filters=128, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
@@ -145,16 +198,15 @@ class DQN:
         # z_mu = tf.layers.dense(x, units=32, name='z_mu')
         # z_logvar = tf.layers.dense(x, units=32, name='z_logvar')
         tf.reset_default_graph()
-        return z_means, z_logvariance
+        return z_means, z_logvariance, x
 
     def compute_loss(self):
-    logits_flat = tf.layers.flatten(self.reconstructions)
-    labels_flat = tf.layers.flatten(self.resized_image)
-    reconstruction_loss = tf.reduce_sum(tf.square(logits_flat - labels_flat), axis = 1)
-    kl_loss = 0.5 * tf.reduce_sum(tf.exp(self.z_logvar) + self.z_mu**2 - 1. - self.z_logvar, 1)
-    vae_loss = tf.reduce_mean(reconstruction_loss + kl_loss)
-    return vae_loss
-
+        logits_flat = tf.layers.flatten(self.reconstructions)
+        labels_flat = tf.layers.flatten(self.resized_image)
+        reconstruction_loss = tf.reduce_sum(tf.square(logits_flat - labels_flat), axis = 1)
+        kl_loss = 0.5 * tf.reduce_sum(tf.exp(self.z_logvar) + self.z_mu**2 - 1. - self.z_logvar, 1)
+        vae_loss = tf.reduce_mean(reconstruction_loss + kl_loss)
+        return vae_loss 
 
     def build_graph(self):
         
@@ -255,6 +307,12 @@ class DQN:
         }
         fd1 = {ph: batch[k] for ph, k in fd.items()}
         self.session.run([self.train_op], fd1)
+    def kl(self,x, y):
+        X = tf.distributions.Categorical(probs=x)
+        Y = tf.distributions.Categorical(probs=y)
+        return tf.distributions.kl_divergence(X, Y)
+
+
 
     def play_episode(self):
         eh = (
@@ -263,24 +321,58 @@ class DQN:
         )
         total_reward = 0
         frames_in_episode = 0
-        with tf.Graph().as_default():
+        with tf.compat.v1.Session() as sess:
+
             first_frame = self.env.reset()
             val, event = self.env.returnRgb()
+
+            img_val = Image.fromarray(val)
+            img_event = Image.fromarray(event)
+            
+            event_shape = tf.shape(event)
             k = tf.keras.losses.KLDivergence()
-            mu, var = self.encoderRGB(val)
-            event_mu, event_logvar = self.encoderEvent(event)
-            latent = self.sample_z(mu,var)
-            latent_event = self.sample_z(event_mu,event_logvar)
-            #kl_r = rel_entr(latent,latent_event)
-            #clear_session()
-            a = tf.constant([[4,3],[3,3]])
-            print(type(a))
-            sess = tf.InteractiveSession()
-            xo = tf.Print(mu,[mu])
-            sess.run(xo)
-            sess.close()
+            vals_mu, vals_var = self.MakeItWork(val)
+            events_mu, events_var = self.MakeItWorkEvent(event)
+            #Sampling into a latent vector
+            val_latent = self.sample_z(vals_mu,vals_var)
+            val_event = self.sample_z(events_mu,events_var)
+            #kl_loss = 0.5 * tf.exp(events_var) 
+            kl_loss = 0.5 * tf.reduce_sum(tf.exp(events_var) + events_mu**2 - 1. - events_var, 1)
+            #KL Divergence
+            X = tf.distributions.Categorical(probs=val_latent)
+            Y = tf.distributions.Categorical(probs=val_event)
+            flat_vector = tf.distributions.kl_divergence(X, Y)
+            print("The ")
+            # mu, var = self.encoderRGB(val)
+            # event_mu, event_logvar, xu = self.encoderEvent(event)
+            #latent = self.sample_z(mu,var)
+            #latent_event = self.sample_z(event_mu,event_logvar)
+            #print(xu.shape)
+            # loss = val_latent * math.log(val_latent / val_event)
+
+
+            value = tf.math.add(val_latent,val_event)
+            #value = k(val_latent,val_event)
+            print("KL", flat_vector)
+            #result = sess.run(val_latent)
+            # sess = tf.InteractiveSession()
+            # xo = tf.Print(latent,[latent])
+
+            # sess.close()
+        #value = tfp.distributions.kl_divergence(latent, latent_event, allow_nan_stats=True, name=None)
+
+        #kl_r = rel_entr(latent,latent_event)
+        #clear_session()
+        # a = tf.constant([[4,3],[3,3]])
+        # print(type(a))
+        # sess = tf.InteractiveSession()
+        # xo = tf.Print(mu,[mu])
+        # sess.run(xo)
+        # sess.close()
         wr = slim.l2_regularizer(self.regularization)
 
+        # k = tf.keras.losses.KLDivergence()
+        # loss = k(latent,latent_event)
 
         #PRINTING VALUES
        #  a = tf.constant([[4,3],[3,3]])
