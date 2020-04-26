@@ -101,7 +101,7 @@ class DQN:
         eps = tf.random_normal(shape=tf.shape(mu))
         return mu + tf.exp(logvar / 2) * eps
 
-    def MakeItWork(self, x):
+    def RGB(self, x):
         
         x = tf.placeholder(tf.float32, [64, 96, 96, 3], name='image')
         x = tf.image.resize_images(x, [64, 64])
@@ -119,7 +119,7 @@ class DQN:
         print("slim",z_mu)
         return z_mu, z_var
 
-    def MakeItWorkEvent(self, x):
+    def Event(self, x):
         
         x = tf.placeholder(tf.float32, [64, 96, 96, 1], name='image')
         x = tf.image.resize_images(x, [64, 64])
@@ -324,25 +324,30 @@ class DQN:
         with tf.compat.v1.Session() as sess:
 
             first_frame = self.env.reset()
+            #From CarRacing 
             val, event = self.env.returnRgb()
 
-            img_val = Image.fromarray(val)
-            img_event = Image.fromarray(event)
-            
+            # img_val = Image.fromarray(val)
+            # img_event = Image.fromarray(event)
+
             event_shape = tf.shape(event)
             k = tf.keras.losses.KLDivergence()
-            vals_mu, vals_var = self.MakeItWork(val)
-            events_mu, events_var = self.MakeItWorkEvent(event)
+            vals_mu, vals_var = self.RGB(val)
+            events_mu, events_var = self.Event(event)
             #Sampling into a latent vector
             val_latent = self.sample_z(vals_mu,vals_var)
             val_event = self.sample_z(events_mu,events_var)
             #kl_loss = 0.5 * tf.exp(events_var) 
-            kl_loss = 0.5 * tf.reduce_sum(tf.exp(events_var) + events_mu**2 - 1. - events_var, 1)
+            #kl_loss = 0.5 * tf.reduce_sum(tf.exp(events_var) + events_mu**2 - 1. - events_var, 1)
+            
             #KL Divergence
             X = tf.distributions.Categorical(probs=val_latent)
             Y = tf.distributions.Categorical(probs=val_event)
-            flat_vector = tf.distributions.kl_divergence(X, Y)
+            loss_vector = tf.distributions.kl_divergence(X, Y)
             print("The ")
+
+
+
             # mu, var = self.encoderRGB(val)
             # event_mu, event_logvar, xu = self.encoderEvent(event)
             #latent = self.sample_z(mu,var)
@@ -353,7 +358,7 @@ class DQN:
 
             value = tf.math.add(val_latent,val_event)
             #value = k(val_latent,val_event)
-            print("KL", flat_vector)
+
             #result = sess.run(val_latent)
             # sess = tf.InteractiveSession()
             # xo = tf.Print(latent,[latent])
