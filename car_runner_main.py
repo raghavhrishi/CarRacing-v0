@@ -22,10 +22,9 @@ import re
 import sys
 
 # SETTINGS
-
 # to start training from scratch:
 load_checkpoint = False
-checkpoint_path = "data/checkpoint02"
+checkpoint_path = "data/checkpoint13"
 train_episodes = float("inf")
 save_freq_episodes = 400
 
@@ -53,6 +52,8 @@ print(model_config)
 
 env_name = "CarRacing-v0"
 env = gym.make(env_name)
+
+print("type",type(env))
 
 # tf.reset_default_graph()
 dqn_agent = CarRacingDQN(env=env, **model_config)
@@ -122,12 +123,12 @@ def main_loop():
 
 
 if train_episodes > 0:
-    print("now training... you can early stop with enter...")
+    print("Training!!")
     print("##########")
     sys.stdout.flush()
     main_loop()
     save_checkpoint()
-    print("ok training done")
+    print(" Training done")
 
 sys.stdout.flush()
 
