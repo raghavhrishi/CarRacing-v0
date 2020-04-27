@@ -57,8 +57,9 @@ print("type",type(env))
 
 # tf.reset_default_graph()
 dqn_agent = CarRacingDQN(env=env, **model_config)
-dqn_agent.build_graph()
-sess = tf.InteractiveSession()
+dqn_agent.build_graph(env)
+#sess = tf.InteractiveSession()
+sess = tf.compat.v1.InteractiveSession()
 dqn_agent.session = sess
 
 saver = tf.train.Saver(max_to_keep=100)
