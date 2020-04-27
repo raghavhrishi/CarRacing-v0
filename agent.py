@@ -172,33 +172,22 @@ class DQN:
         return z_mean, z_logvara
 
     
-    def encoderEvent(self, x):
-        #x = tf.placeholder(tf.float32, [None, None, 96, 96], name='image')
+    def encoderEvent(self, input):
 
-        model = models.Sequential()
-        model.add(layers.Conv2D(32, (4, 4), activation='relu', input_shape=[None, 96, 96]))
-        model.add(layers.MaxPooling2D((2, 2)))
+        wr = slim.l2_regularizer(1e-6)
 
-        # model.add(layers.Conv2D(64, (3, 3), activation='relu'))
-        # model.add(layers.MaxPooling2D((2, 2)))
-        # model.add(layers.Conv2D(64, (3, 3), activation='relu'))
+        input_t = tf.transpose(input, [0, 2, 3])
+        net = slim.conv2d(input_t, 8, (7, 7), data_format="NHWC",
+            activation_fn=tf.nn.relu, stride=3, weights_regularizer=wr)
+        net = slim.max_pool2d(net, 2, 2)
+        net = slim.conv2d(net, 16, (3, 3), data_format="NHWC",
+            activation_fn=tf.nn.relu, weights_regularizer=wr,)
+        net = slim.max_pool2d(net, 2, 2)
+        net = slim.flatten(net)
+        net = slim.fully_connected(net, 256, activation_fn=tf.nn.relu,
+            weights_regularizer=wr)
 
-        x = tf.placeholder(tf.float32, [None, 96, 96, 3], name='image')
-        shape = x
-        x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
-        x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
-        x = tf.layers.conv2d(x, filters=128, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
-        x = tf.layers.conv2d(x, filters=256, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
-        x = tf.layers.flatten(x)
-        fc1 = tf.reshape(x, [-1, 4096])
-        z_means = tf.layers.dense(fc1, units=32, name='z_mu')
-        z_logvariance = tf.layers.dense(fc1, units=32, name='z_logvar')
-       # print("dimension!!!!!!!!!!1",type(x))
-        # x = tf.reshape(x.size(0),-1)
-        # z_mu = tf.layers.dense(x, units=32, name='z_mu')
-        # z_logvar = tf.layers.dense(x, units=32, name='z_logvar')
-        tf.reset_default_graph()
-        return z_means, z_logvariance, x
+        return net
 
     def compute_loss(self):
         logits_flat = tf.layers.flatten(self.reconstructions)
@@ -208,7 +197,7 @@ class DQN:
         vae_loss = tf.reduce_mean(reconstruction_loss + kl_loss)
         return vae_loss 
 
-    def build_graph(self):
+    def build_graph(self,env):
         
 
         input_dim_with_batch = (self.batchsize, self.num_frame_stack) + self.pic_size
@@ -222,6 +211,29 @@ class DQN:
 
         # These are the state action values for all states
         # The target Q-values come from the fixed network
+
+        #ENCODER AND LOSS CALCULATION
+        ####################################################################
+        first_frame = env.reset()
+        val, event = env.returnRgb()
+        rgb_mu, rgb_var = self.RGB(val)
+        events_mu, events_var = self.Event(event)
+        self.val_for_loss = ((rgb_var ** 2) + ((rgb_mu - events_mu)**2)) / (2 *(rgb_var **2))
+        self.loss_vector = tf.math.log(events_var/rgb_var) + self.val_for_loss - (1/2)
+        tf.Print(self.loss_vector,[self.loss_vector], " WORK PLEASE")
+        # self.val_latent = self.sample_z(vals_mu,vals_var)
+        # self.val_event = self.sample_z(events_mu,events_var)
+        
+
+        # x = tf.Print(self.loss_vector,[self.loss_vector])
+        # sess = tf.InteractiveSession()
+        # sess.run(x)
+        # sess.close()
+
+        # X = tf.distributions.Normal(probs=self.val_latent)
+        # Y = tf.distributions.Normal(probs=self.val_event)
+        # self.loss_vector = tf.distributions.kl_divergence(X, Y)
+        #####################################################################
         with tf.variable_scope("fixed"):
             qsa_targets = self.create_network(self.input_next_state, trainable=False)
 
@@ -229,7 +241,6 @@ class DQN:
             qsa_estimates = self.create_network(self.input_prev_state, trainable=True)
 
         self.best_action = tf.argmax(qsa_estimates, axis=1)
-
         not_done = tf.cast(tf.logical_not(tf.cast(self.input_done_mask, "bool")), "float32")
         q_target = tf.reduce_max(qsa_targets, -1) * self.gamma * not_done + self.input_reward
         # select the chosen action from each row
@@ -238,11 +249,15 @@ class DQN:
         q_estimates_for_input_action = tf.gather_nd(qsa_estimates, action_slice)
 
         training_loss = tf.nn.l2_loss(q_target - q_estimates_for_input_action) / self.batchsize
-
         optimizer = tf.train.AdamOptimizer(**(self.optimizer_params))
-
         reg_loss = tf.add_n(tf.losses.get_regularization_losses())
-        self.train_op = optimizer.minimize(reg_loss + training_loss)
+        # x = tf.Print(reg_loss, [reg_loss])
+        # sess = tf.InteractiveSession()
+        # sess.run(x)
+        # sess.close()
+
+        self.train_op = optimizer.minimize(reg_loss + training_loss + self.loss_vector)
+        tf.print(self.train_op)
 
         train_params = self.get_variables("train")
         fixed_params = self.get_variables("fixed")
@@ -250,6 +265,8 @@ class DQN:
         assert (len(train_params) == len(fixed_params))
         self.copy_network_ops = [tf.assign(fixed_v, train_v)
             for train_v, fixed_v in zip(train_params, fixed_params)]
+
+        return self.train_op
 
     def get_variables(self, scope):
         vars = [t for t in tf.global_variables()
@@ -306,11 +323,11 @@ class DQN:
             self.input_done_mask: "done_mask"
         }
         fd1 = {ph: batch[k] for ph, k in fd.items()}
-        self.session.run([self.train_op], fd1)
-    def kl(self,x, y):
-        X = tf.distributions.Categorical(probs=x)
-        Y = tf.distributions.Categorical(probs=y)
-        return tf.distributions.kl_divergence(X, Y)
+        results = self.session.run([self.train_op,self.loss_vector], fd1)
+        self.graph  = build_graph()
+        with tf.InteractiveSession() as sess:
+            print(sess.run([self.graph], fd1))
+
 
 
 
@@ -321,31 +338,31 @@ class DQN:
         )
         total_reward = 0
         frames_in_episode = 0
-        with tf.compat.v1.Session() as sess:
+        # with tf.compat.v1.Session() as sess:
 
-            first_frame = self.env.reset()
+        first_frame = self.env.reset()
             #From CarRacing 
-            val, event = self.env.returnRgb()
+            # val, event = self.env.returnRgb()
 
-            # img_val = Image.fromarray(val)
-            # img_event = Image.fromarray(event)
+            # # img_val = Image.fromarray(val)
+            # # img_event = Image.fromarray(event)
 
-            event_shape = tf.shape(event)
-            k = tf.keras.losses.KLDivergence()
-            vals_mu, vals_var = self.RGB(val)
-            events_mu, events_var = self.Event(event)
-            #Sampling into a latent vector
-            val_latent = self.sample_z(vals_mu,vals_var)
-            val_event = self.sample_z(events_mu,events_var)
-            #kl_loss = 0.5 * tf.exp(events_var) 
-            #kl_loss = 0.5 * tf.reduce_sum(tf.exp(events_var) + events_mu**2 - 1. - events_var, 1)
-            
-            #KL Divergence
-            X = tf.distributions.Categorical(probs=val_latent)
-            Y = tf.distributions.Categorical(probs=val_event)
-            loss_vector = tf.distributions.kl_divergence(X, Y)
-            print("The ")
+            # event_shape = tf.shape(event)
+            # k = tf.keras.losses.KLDivergence()
+            # vals_mu, vals_var = self.RGB(val)
+            # events_mu, events_var = self.Event(event)
+            # #Sampling into a latent vector
+            # self.val_latent = self.sample_z(vals_mu,vals_var)
+            # self.val_event = self.sample_z(events_mu,events_var)
 
+            # #kl_loss = 0.5 * tf.exp(events_var) 
+            # #kl_loss = 0.5 * tf.reduce_sum(tf.exp(events_var) + events_mu**2 - 1. - events_var, 1)
+
+            # #KL Divergence
+            # X = tf.distributions.Categorical(probs=self.val_latent)
+            # Y = tf.distributions.Categorical(probs=self.val_event)
+            # loss_vector = tf.distributions.kl_divergence(X, Y)
+            # self.loss_vector = 1
 
 
             # mu, var = self.encoderRGB(val)
@@ -356,7 +373,7 @@ class DQN:
             # loss = val_latent * math.log(val_latent / val_event)
 
 
-            value = tf.math.add(val_latent,val_event)
+            #value = tf.math.add(val_latent,val_event)
             #value = k(val_latent,val_event)
 
             #result = sess.run(val_latent)
@@ -380,11 +397,11 @@ class DQN:
         # loss = k(latent,latent_event)
 
         #PRINTING VALUES
-       #  a = tf.constant([[4,3],[3,3]])
-       # # x = tf.Print(a,[a])
-       #  sess = tf.InteractiveSession()
-       #  sess.run(latent_event)
-       #  sess.close()
+        # a = tf.constant([[4,3],[3,3]])
+        # x = tf.Print(self.val_latent,[self.val_latent])
+        # sess = tf.InteractiveSession()
+        # sess.run(x)
+        # sess.close()
 
 
 
@@ -411,6 +428,11 @@ class DQN:
                     self.best_action,
                     {self.input_prev_state: eh.current_state()[np.newaxis, ...]}
                 )[0]
+                # action_idx, loss_vec = self.session.run(
+                #     [self.best_action, self.loss_vector],
+                #     {self.input_prev_state: eh.current_state()[np.newaxis, ...]}
+                # )
+            # print("Loss vec:", self.loss_vector)
             else:
                 action_idx = self.get_random_action()
 
