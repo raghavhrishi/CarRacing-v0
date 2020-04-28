@@ -103,10 +103,11 @@ class DQN:
 
     def RGB(self, x):
         
-        x = tf.placeholder(tf.float32, [64, 96, 96, 3], name='image')
-        x = tf.image.resize_images(x, [64, 64])
+        #x = tf.placeholder(tf.float32, [64, 96, 96, 3], name='image')
+        #x = tf.image.resize_images(x, [64, 64])
+        x = tf.compat.v1.image.resize(x, [64, 96, 96, 3])
+        #x = tf.image.resize_images(x, [None, 96, 96, 3])
         x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
-        red_work = x
         x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
         # x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
         # x = tf.layers.conv2d(x, filters=128, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
@@ -115,16 +116,18 @@ class DQN:
         x = tf.reshape(x, [-1, 6272])
         print(x)
         z_mu = slim.fully_connected(x, 5, activation_fn=tf.nn.elu)
-        z_var = slim.fully_connected(x, 5, activation_fn=tf.nn.elu)
+        z_var = slim.fully_connected(x, 5, activation_fn=tf.nn.elu)             
         print("slim",z_mu)
         return z_mu, z_var
 
     def Event(self, x):
         
-        x = tf.placeholder(tf.float32, [64, 96, 96, 1], name='image')
-        x = tf.image.resize_images(x, [64, 64])
+        #x = tf.placeholder(tf.float32, [64, 96, 96, 3], name='image')
+        #x = tf.image.resize_images(x, [64, 64])
+        x = tf.compat.v1.image.resize(x, [64, 96, 96, 3])
+
+        #x = tf.image.resize_images(x,[None, 96, 96, 3])
         x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
-        red_work = x
         x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
         # x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
         # x = tf.layers.conv2d(x, filters=128, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
@@ -143,8 +146,8 @@ class DQN:
 
 
     def encoderRGB(self, x):
-        
-        x = tf.placeholder(tf.float32, [None, 96, 96, 3], name='image')
+
+        #x = tf.placeholder(tf.float32, [None, 96, 96, 3], name='image')
         x = tf.image.resize_images(x, [96, 96])
         x = tf.layers.conv2d(x, filters=32, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
         x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2, padding='valid', activation=tf.nn.elu)
@@ -162,8 +165,8 @@ class DQN:
         # dim = np.prod(shape[1:])            
         # x2 = tf.reshape(-1, x.get_shape())
         #print("dimension!!!",fc1)
-       
-               # x = tf.reshape(-1,4096)
+
+        # x = tf.reshape(-1,4096)
         tf.reset_default_graph()
 
         # z_mus = tf.layers.dense(x2, units=32, name='z_mu')
@@ -202,25 +205,28 @@ class DQN:
 
         input_dim_with_batch = (self.batchsize, self.num_frame_stack) + self.pic_size
         input_dim_general = (None, self.num_frame_stack) + self.pic_size
-
         self.input_prev_state = tf.placeholder(tf.float32, input_dim_general, "prev_state")
         self.input_next_state = tf.placeholder(tf.float32, input_dim_with_batch, "next_state")
         self.input_reward = tf.placeholder(tf.float32, self.batchsize, "reward")
         self.input_actions = tf.placeholder(tf.int32, self.batchsize, "actions")
         self.input_done_mask = tf.placeholder(tf.int32, self.batchsize, "done_mask")
-
+        #self.first_frame = tf.placeholder(tf.int32, self.batchsize, "first_frame")
+        self.loss_vector = tf.placeholder(tf.float32, shape = self.batchsize)
         # These are the state action values for all states
         # The target Q-values come from the fixed network
-
         #ENCODER AND LOSS CALCULATION
         ####################################################################
         first_frame = env.reset()
-        val, event = env.returnRgb()
-        rgb_mu, rgb_var = self.RGB(val)
-        events_mu, events_var = self.Event(event)
-        self.val_for_loss = ((rgb_var ** 2) + ((rgb_mu - events_mu)**2)) / (2 *(rgb_var **2))
-        self.loss_vector = tf.math.log(events_var/rgb_var) + self.val_for_loss - (1/2)
-        tf.Print(self.loss_vector,[self.loss_vector], " WORK PLEASE")
+        self.val = tf.placeholder(tf.float32, [64, 96, 96, 3], name='rgb')
+        self.event = tf.placeholder(tf.float32, [64, 96, 96, 3], name='event') 
+        self.val, self.event = env.returnRgb()
+        rgb_mu, rgb_var = self.RGB(self.val)
+        events_mu, events_var = self.Event(self.event)
+        rgb_std = tf.math.sqrt(rgb_var)
+        event_std = tf.math.sqrt(events_mu)
+        self.val_for_loss = ((rgb_std ** 2) + ((rgb_mu - events_mu)**2)) / (2 *(rgb_std **2))
+        self.loss_vector = tf.math.log(event_std/rgb_std) + self.val_for_loss - (1/2)
+
         # self.val_latent = self.sample_z(vals_mu,vals_var)
         # self.val_event = self.sample_z(events_mu,events_var)
         
@@ -256,7 +262,7 @@ class DQN:
         # sess.run(x)
         # sess.close()
 
-        self.train_op = optimizer.minimize(reg_loss + training_loss + self.loss_vector)
+        self.train_op = optimizer.minimize(reg_loss + training_loss ) #+ self.loss_vector)
         tf.print(self.train_op)
 
         train_params = self.get_variables("train")
@@ -341,44 +347,10 @@ class DQN:
         # with tf.compat.v1.Session() as sess:
 
         first_frame = self.env.reset()
-            #From CarRacing 
-            # val, event = self.env.returnRgb()
+            #From CarRacing
 
-            # # img_val = Image.fromarray(val)
-            # # img_event = Image.fromarray(event)
+        
 
-            # event_shape = tf.shape(event)
-            # k = tf.keras.losses.KLDivergence()
-            # vals_mu, vals_var = self.RGB(val)
-            # events_mu, events_var = self.Event(event)
-            # #Sampling into a latent vector
-            # self.val_latent = self.sample_z(vals_mu,vals_var)
-            # self.val_event = self.sample_z(events_mu,events_var)
-
-            # #kl_loss = 0.5 * tf.exp(events_var) 
-            # #kl_loss = 0.5 * tf.reduce_sum(tf.exp(events_var) + events_mu**2 - 1. - events_var, 1)
-
-            # #KL Divergence
-            # X = tf.distributions.Categorical(probs=self.val_latent)
-            # Y = tf.distributions.Categorical(probs=self.val_event)
-            # loss_vector = tf.distributions.kl_divergence(X, Y)
-            # self.loss_vector = 1
-
-
-            # mu, var = self.encoderRGB(val)
-            # event_mu, event_logvar, xu = self.encoderEvent(event)
-            #latent = self.sample_z(mu,var)
-            #latent_event = self.sample_z(event_mu,event_logvar)
-            #print(xu.shape)
-            # loss = val_latent * math.log(val_latent / val_event)
-
-
-            #value = tf.math.add(val_latent,val_event)
-            #value = k(val_latent,val_event)
-
-            #result = sess.run(val_latent)
-            # sess = tf.InteractiveSession()
-            # xo = tf.Print(latent,[latent])
 
             # sess.close()
         #value = tfp.distributions.kl_divergence(latent, latent_event, allow_nan_stats=True, name=None)
@@ -403,18 +375,6 @@ class DQN:
         # sess.run(x)
         # sess.close()
 
-
-
-        # net = slim.conv2d(event, 8, (7, 7), data_format="NHWC",
-        #     activation_fn=tf.nn.relu, stride=3, weights_regularizer=wr)
-
-        # x = tf.layers.conv2d(event, filters=32, kernel_size=1,  activation=tf.nn.relu)
-        # x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2, activation=tf.nn.relu)
-        # x = tf.layers.conv2d(x, filters=128, kernel_size=4, strides=2,  activation=tf.nn.relu)
-        # x = tf.layers.conv2d(x, filters=256, kernel_size=4, strides=2,  activation=tf.nn.relu)
-        # # x = tf.layers.flatten(x)
-        # z_mu = tf.layers.dense(x, units=32, name='z_mu')
-        # z_logvar = tf.layers.dense(x, units=32, name='z_logvar')
 
 
 
